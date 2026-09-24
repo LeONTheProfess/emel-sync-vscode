@@ -1,0 +1,29 @@
+GetTemplate(treeRequest as "PropertyTree", treeAnswer as "PropertyTree", Doc AS "HTMLDocument", Headers AS "Parameters")
+{
+    token   = Headers.GetParam("Authorization");
+
+    If (token == "")
+        treeAnswer.Put("error",   "access_denied");
+        treeAnswer.Put("message", "Токен не задан.");
+        Return 401;
+    End If
+
+    If (token != token_classes)
+        treeAnswer.Put("error",   "access_denied");
+        Return 403;
+    End If
+
+    id = Doc.GetParamValue("id");
+    ClassRecord = Object("dsDB", "EMELClass");
+    ClassRecord.SetLine(id);
+    If(~ClassRecord.IsValidLine())
+        treeAnswer.Put("error",   "class not found or deleted");
+        Return 404;
+    End If
+    modified = ClassRecord.GetSourceTextDate() + ClassRecord.GetSourceTextTime();
+    treeAnswer.Put("modified", is_fdatetime(modified, "%Y-%m-%dT%H:%M:%S"));
+    treeAnswer.Put("constructor", ClassRecord.GetConstructor());
+    treeAnswer.Put("methods", ClassRecord.GetMethods());
+
+    Return 200;
+}

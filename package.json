@@ -1,0 +1,89 @@
+{
+  "name": "emel-sync",
+  "displayName": "EMEL Sync",
+  "description": "VS Code integration for synchronizing EMEL WMS classes into a Git repository.",
+  "version": "0.2.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:emel.init",
+    "onCommand:emel.initAndSync",
+    "onCommand:emel.sync",
+    "onCommand:emel.fullSync",
+    "onCommand:emel.dryRun",
+    "onCommand:emel.openConfig"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "emel.init",
+        "title": "EMEL: Initialize Repository"
+      },
+      {
+        "command": "emel.initAndSync",
+        "title": "EMEL: Initialize & Sync"
+      },
+      {
+        "command": "emel.sync",
+        "title": "EMEL: Sync Classes"
+      },
+      {
+        "command": "emel.fullSync",
+        "title": "EMEL: Full Sync"
+      },
+      {
+        "command": "emel.dryRun",
+        "title": "EMEL: Dry Run"
+      },
+      {
+        "command": "emel.openConfig",
+        "title": "EMEL: Open Configuration"
+      }
+    ],
+    "configuration": {
+      "title": "EMEL Sync",
+      "properties": {
+        "emel.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Python executable. Empty means python on Windows, python3 on Linux."
+        },
+        "emel.scriptPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to emel_sync.py. Empty means the bundled script in the extension."
+        },
+        "emel.defaultWorkers": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 32,
+          "description": "Default number of parallel WMS requests."
+        },
+        "emel.showTerminal": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also open the EMEL Sync terminal while a command is running."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.1",
+    "typescript": "^5.7.0"
+  }
+}

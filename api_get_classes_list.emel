@@ -1,0 +1,35 @@
+GetTemplate(treeRequest AS "PropertyTree", treeAnswer As "PropertyTree", Doc AS "HTMLDocument", Headers AS "Parameters")
+{
+
+    token   = Headers.GetParam("Authorization");
+
+    If (token == "")
+        treeAnswer.Put("error",   "access_denied");
+        treeAnswer.Put("message", "Токен не задан.");
+        Return 401;
+    End If
+    If (token != token_classes)
+        treeAnswer.Put("error",   "access_denied");
+        Return 403;
+    End If
+
+    ClassRecord = Object("dsDB", "EMELClass");
+    itemClasses = treeAnswer.AddChild("Classes");
+    Loop(ClassRecord)
+        FullName = ClassRecord.GetFullPath();
+        Name = ClassRecord.GetName();
+        id = ClassRecord.GetLine();
+        parent_id = ClassRecord.GetParentClassRef();
+        modified = ClassRecord.GetSourceTextDate() + ClassRecord.GetSourceTextTime();
+
+        line = itemClasses.PushBack();
+        line.Put("full_name", FullName);
+        line.Put("id", id);
+        line.Put("parent_id", parent_id);
+        line.Put("modified", is_fdatetime(modified, "%Y-%m-%dT%H:%M:%S"));
+    End Loop
+
+
+
+    Return 200;
+}
