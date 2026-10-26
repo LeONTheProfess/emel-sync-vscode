@@ -1,37 +1,45 @@
-# EMEL Sync VS Code Extension
+# EMEL Sync
 
-## Workflow
+Небольшой Python CLI для загрузки и синхронизации всех классов EMEL из WMS в файлы `.emel`. Расширение VS Code и Node.js для работы не нужны.
 
-First launch:
+## Требования
 
-1. Open the target project folder in VS Code.
-2. Run `EMEL: Initialize & Sync`.
-3. Enter the WMS API URL and token.
-4. The extension runs `init`, then immediately `sync`.
+- Python 3.8 или новее
+- Git не требуется
+- Доступ к API WMS с токеном `token_classes`
 
-Later:
+## Настройка
 
-- `EMEL: Sync Classes`
-- `EMEL: Full Sync`
-- `EMEL: Dry Run`
-- `EMEL: Open Configuration`
-
-## Important
-
-Replace `python/emel_sync.py` with your real working Python script.
-
-## Development
+Создайте папку, в которую будут загружаться файлы, и сохраните в ней конфигурацию:
 
 ```bash
-npm install
-npm run compile
+python3 python/emel_sync.py init ./emel-files \
+  --url http://wms-host:3215/api \
+  --token YOUR_TOKEN
 ```
 
-Press `F5` to launch the Extension Development Host.
+Токен сохраняется в `./emel-files/.emel/config.json`. Если не хотите передавать токен аргументом командной строки, задайте переменную окружения `EMEL_TOKEN` и опустите `--token`.
 
-## Configuration
+По умолчанию скрипт обращается к адресам:
 
-- `emel.pythonPath`
-- `emel.scriptPath`
-- `emel.defaultWorkers`
-- `emel.showTerminal`
+- `?command=classes_list` — список классов;
+- `?command=class&id=<id>` — содержимое класса.
+
+Если API использует другие адреса, задайте `--list-url` и/или шаблон `--class-url` (в последнем должен быть `{id}`). Примеры обработчиков API для WMS находятся в `api_get_classes_list.emel` и `api_get_class.emel`.
+
+## Синхронизация
+
+```bash
+python3 python/emel_sync.py sync ./emel-files
+```
+
+При обычном запуске скрипт проверяет список классов, скачивает новые и изменившиеся файлы, удаляет исчезнувшие классы и обновляет их расположение при изменении иерархии. Состояние синхронизации хранится в `./emel-files/.emel/index.json`. Классы записываются в UTF-8; классы с дочерними элементами располагаются в отдельных папках.
+
+Полезные параметры:
+
+- `--full` — повторно скачать все классы;
+- `--dry-run` — показать план без записи файлов;
+- `--workers N` — число параллельных запросов (по умолчанию 2);
+- `--force` — отключить защиту от подозрительно сократившегося списка классов.
+
+Скрипт изменяет только файлы `.emel` и собственные служебные данные в `.emel/`; он не вызывает Git и не выполняет других действий с репозиторием.

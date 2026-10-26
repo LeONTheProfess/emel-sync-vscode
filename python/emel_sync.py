@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""emel_sync - зеркало классов EMEL в git-репозитории (БД -> файлы -> git).
+"""emel_sync - загрузка и синхронизация классов EMEL в виде файлов .emel.
 
   python emel_sync.py init <папка> --url http://хост/api --token ТОКЕН
   python emel_sync.py sync [папка] [--dry-run] [--full] [--workers N]
@@ -10,7 +10,7 @@
   2. сравнивает с .emel/index.json: новые, изменённые, удалённые, перемещённые;
   3. скачивает только изменённые классы (конструктор + методы);
   4. раскладывает файлы по папкам (класс с потомками = папка);
-  5. делает git commit, если что-то изменилось.
+  5. сохраняет изменения локально, без вызова Git.
 
 Запросы: <url>?command=classes_list и <url>?command=class&id=<id>
 (другой вид - через list_url / class_url в .emel/config.json).
@@ -26,7 +26,6 @@ import io
 import json
 import os
 import re
-import subprocess
 import sys
 import time
 import urllib.error
@@ -260,7 +259,7 @@ def render(ctor, methods):
     return f"{MARK_CTOR}{EOL}{ctor}{EOL}{MARK_METH}{EOL}{methods}"
 
 
-# ------------------------------------------------------------ файлы и git
+# ------------------------------------------------------------------ файлы
 def atomic_write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -273,35 +272,6 @@ def prune_empty_dirs(root: Path, rel: str):
     while d != root and d.exists() and not any(d.iterdir()):
         d.rmdir()
         d = d.parent
-
-
-def git(root, *args, check=True):
-    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
-                       text=True, encoding="utf-8", errors="replace")
-    if check and r.returncode != 0:
-        raise Fatal(f"git {' '.join(args[:2])}: {r.stderr.strip()}")
-    return r
-
-
-def git_ident(cfg):
-    return ["-c", f"user.name={cfg.get('git_user', 'emel-sync')}",
-            "-c", f"user.email={cfg.get('git_email', 'emel-sync@localhost')}",
-            "-c", "i18n.commitEncoding=utf-8"]
-
-
-def dirty_emel(root):
-    """Незакоммиченные изменения в *.emel (изменённые, удалённые, неотслеживаемые).
-    Остальное (.vscode, __pycache__ и т.п.) sync не трогает и не блокирует."""
-    out = git(root, "status", "--porcelain", "--untracked-files=all").stdout.splitlines()
-    return [l for l in out if re.search(r'\.emel"?\s*$', l)]
-
-
-def git_commit(root, cfg, subject, body):
-    git(root, "add", "-A", "--", "*.emel")   # только файлы классов
-    if git(root, "diff", "--cached", "--quiet", check=False).returncode == 0:
-        return False
-    git(root, *git_ident(cfg), "commit", "-q", "-m", subject, "-m", body)
-    return True
 
 
 class Lock:
@@ -362,13 +332,6 @@ def cmd_init(a):
     if a.class_url:
         cfg["class_url"] = a.class_url
     cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), "utf-8")
-    # -text: git не трогает переводы строк (платформа хранит CRLF)
-    (root / ".gitattributes").write_text("*.emel -text\n", "utf-8")
-    (root / ".gitignore").write_text(f"{CFG_DIR}/\n", "utf-8")   # в .emel лежит токен
-    if not (root / ".git").exists():
-        git(root, "init", "-q")
-    git(root, "add", ".gitattributes", ".gitignore")
-    git(root, *git_ident(cfg), "commit", "-q", "-m", "init: emel mirror")
     print(f"Готово: {root}\nДальше: python {Path(__file__).name} sync \"{root}\"")
     return 0
 
@@ -378,13 +341,6 @@ def do_sync(root, cfg, a):
     api = Api(cfg)
     api.dump_path = root / CFG_DIR / "bad_response.txt"
     print(f"Зеркало: {root}")
-    dirty = [] if a.allow_dirty else dirty_emel(root)
-    if dirty:
-        shown = "\n  ".join(dirty[:10]) + (f"\n  ... и ещё {len(dirty) - 10}" if len(dirty) > 10 else "")
-        raise Fatal(f"в репозитории {root} есть незакоммиченные изменения в файлах классов; sync "
-                    "перезаписывает файлы, поэтому закоммитьте их (git add -A && git commit) "
-                    "или используйте отдельную копию для зеркала "
-                    f"(--allow-dirty, чтобы проигнорировать):\n  {shown}")
     old = load_index(root)["classes"]
     try:
         nodes = norm_list(api.list_classes())
@@ -499,7 +455,6 @@ def do_sync(root, cfg, a):
         {"version": 1, "last_sync": time.strftime("%Y-%m-%dT%H:%M:%S"), "classes": new_idx},
         ensure_ascii=False, indent=1).encode("utf-8"))
 
-    # 4) git
     parts = []
     if added:
         parts.append(f"+{len(added)} новых")
@@ -509,13 +464,8 @@ def do_sync(root, cfg, a):
         parts.append(f"{len(moved)} перемещено/переименовано")
     if del_names:
         parts.append(f"-{len(del_names)} удалено")
-    if parts and not a.no_commit:
-        body = "\n".join(f"{title}: " + ", ".join(names[:40]) + (" ..." if len(names) > 40 else "")
-                         for title, names in (("Новые", added), ("Изменены", changed),
-                                              ("Перемещены", moved), ("Удалены", del_names))
-                         if names)
-        done = git_commit(root, cfg, "sync: " + ", ".join(parts), body)
-        print("Коммит создан:" if done else "Изменений для коммита нет:", ", ".join(parts))
+    if parts:
+        print("Синхронизация завершена:", ", ".join(parts))
     elif not parts:
         print("Изменений нет.")
 
@@ -531,8 +481,6 @@ def do_sync(root, cfg, a):
 def cmd_sync(a):
     root = Path(a.dir).resolve()
     cfg = load_cfg(root)
-    if not (root / ".git").exists():
-        raise Fatal("нет .git - сначала выполните init")
     with Lock(root):
         return do_sync(root, cfg, a)
 
@@ -541,9 +489,9 @@ def main(argv=None):
     for s in (sys.stdout, sys.stderr):
         if isinstance(s, io.TextIOWrapper):   # у pythonw stdout может быть None
             s.reconfigure(encoding="utf-8", errors="replace")
-    ap = argparse.ArgumentParser(description="Зеркало классов EMEL в git")
+    ap = argparse.ArgumentParser(description="Загрузка и синхронизация файлов классов EMEL")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    pi = sub.add_parser("init", help="создать папку зеркала, конфиг и git-репозиторий")
+    pi = sub.add_parser("init", help="создать папку зеркала и конфигурацию API")
     pi.add_argument("dir")
     pi.add_argument("--url", required=True,
                     help="URL API без command, например http://192.168.0.12:3215/api")
@@ -552,14 +500,12 @@ def main(argv=None):
     pi.add_argument("--class-url", help="шаблон запроса класса с {id}, "
                     "по умолчанию <url>?command=class&id={id}")
     pi.set_defaults(func=cmd_init)
-    ps = sub.add_parser("sync", help="подтянуть изменения и закоммитить")
+    ps = sub.add_parser("sync", help="загрузить и синхронизировать файлы классов")
     ps.add_argument("dir", nargs="?", default=".")
     ps.add_argument("--dry-run", action="store_true", help="только показать план")
     ps.add_argument("--full", action="store_true", help="перескачать все классы")
     ps.add_argument("--workers", type=int, default=2, help="параллельных запросов (по умолчанию 2)")
-    ps.add_argument("--no-commit", action="store_true")
     ps.add_argument("--force", action="store_true", help="не проверять, что список не сократился вдвое")
-    ps.add_argument("--allow-dirty", action="store_true")
     ps.set_defaults(func=cmd_sync)
     a = ap.parse_args(argv)
     try:
